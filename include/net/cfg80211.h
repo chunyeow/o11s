@@ -1314,6 +1314,7 @@ struct mesh_config {
  * @beacon_interval: beacon interval to use
  * @mcast_rate: multicat rate for Mesh Node [6Mbps is the default for 802.11a]
  * @basic_rates: basic rates to use when creating the mesh
+ * @hidden_ssid: to hide or not to hide the mesh id in beacon frame
  *
  * These parameters are fixed when the mesh is created.
  */
@@ -1334,6 +1335,7 @@ struct mesh_setup {
 	u16 beacon_interval;
 	int mcast_rate[IEEE80211_NUM_BANDS];
 	u32 basic_rates;
+	enum nl80211_hidden_ssid hidden_ssid;
 };
 
 /**

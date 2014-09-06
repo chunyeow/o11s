@@ -60,7 +60,8 @@ static void ieee80211_mesh_housekeeping_timer(unsigned long data)
  * local mesh configuration, i.e. if both nodes belong to the same mesh network.
  */
 bool mesh_matches_local(struct ieee80211_sub_if_data *sdata,
-			struct ieee802_11_elems *ie)
+			struct ieee802_11_elems *ie,
+			u16 stype)
 {
 	struct ieee80211_if_mesh *ifmsh = &sdata->u.mesh;
 	u32 basic_rates = 0;
@@ -76,13 +77,23 @@ bool mesh_matches_local(struct ieee80211_sub_if_data *sdata,
 	 *   - MDA enabled
 	 * - Power management control on fc
 	 */
-	if (!(ifmsh->mesh_id_len == ie->mesh_id_len &&
-	     memcmp(ifmsh->mesh_id, ie->mesh_id, ie->mesh_id_len) == 0 &&
-	     (ifmsh->mesh_pp_id == ie->mesh_config->meshconf_psel) &&
-	     (ifmsh->mesh_pm_id == ie->mesh_config->meshconf_pmetric) &&
-	     (ifmsh->mesh_cc_id == ie->mesh_config->meshconf_congest) &&
-	     (ifmsh->mesh_sp_id == ie->mesh_config->meshconf_synch) &&
-	     (ifmsh->mesh_auth_id == ie->mesh_config->meshconf_auth)))
+	if (sdata->vif.bss_conf.hidden_ssid
+	    != NL80211_HIDDEN_SSID_NOT_IN_USE &&
+	    stype == IEEE80211_STYPE_BEACON) {
+		if (ie->mesh_id_len != 0)
+			return false;
+	} else {
+		if (!(ifmsh->mesh_id_len == ie->mesh_id_len &&
+		      memcmp(ifmsh->mesh_id, ie->mesh_id,
+			     ie->mesh_id_len) == 0))
+			return false;
+	}
+
+	if (!((ifmsh->mesh_pp_id == ie->mesh_config->meshconf_psel) &&
+	      (ifmsh->mesh_pm_id == ie->mesh_config->meshconf_pmetric) &&
+	      (ifmsh->mesh_cc_id == ie->mesh_config->meshconf_congest) &&
+	      (ifmsh->mesh_sp_id == ie->mesh_config->meshconf_synch) &&
+	      (ifmsh->mesh_auth_id == ie->mesh_config->meshconf_auth)))
 		return false;
 
 	ieee80211_sta_get_rates(sdata, ie, ieee80211_get_sdata_band(sdata),
@@ -292,19 +303,30 @@ int mesh_add_meshconf_ie(struct ieee80211_sub_if_data *sdata,
 	return 0;
 }
 
-int mesh_add_meshid_ie(struct ieee80211_sub_if_data *sdata, struct sk_buff *skb)
+int mesh_add_meshid_ie(struct ieee80211_sub_if_data *sdata,
+		       struct sk_buff *skb, bool beacon)
 {
 	struct ieee80211_if_mesh *ifmsh = &sdata->u.mesh;
 	u8 *pos;
 
-	if (skb_tailroom(skb) < 2 + ifmsh->mesh_id_len)
+	if (skb_tailroom(skb) < 2)
 		return -ENOMEM;
 
-	pos = skb_put(skb, 2 + ifmsh->mesh_id_len);
+	pos = skb_put(skb, 2);
 	*pos++ = WLAN_EID_MESH_ID;
-	*pos++ = ifmsh->mesh_id_len;
-	if (ifmsh->mesh_id_len)
-		memcpy(pos, ifmsh->mesh_id, ifmsh->mesh_id_len);
+
+	if (sdata->vif.bss_conf.hidden_ssid
+	    != NL80211_HIDDEN_SSID_NOT_IN_USE && beacon) {
+		*pos++ = 0;
+	} else {
+		if (skb_tailroom(skb) < ifmsh->mesh_id_len)
+			return -ENOMEM;
+
+		*pos++ = ifmsh->mesh_id_len;
+		pos = skb_put(skb, ifmsh->mesh_id_len);
+		if (ifmsh->mesh_id_len)
+			memcpy(pos, ifmsh->mesh_id, ifmsh->mesh_id_len);
+	}
 
 	return 0;
 }
@@ -713,7 +735,7 @@ ieee80211_mesh_build_beacon(struct ieee80211_if_mesh *ifmsh)
 	    mesh_add_rsn_ie(sdata, skb) ||
 	    mesh_add_ht_cap_ie(sdata, skb) ||
 	    mesh_add_ht_oper_ie(sdata, skb) ||
-	    mesh_add_meshid_ie(sdata, skb) ||
+	    mesh_add_meshid_ie(sdata, skb, true) ||
 	    mesh_add_meshconf_ie(sdata, skb) ||
 	    mesh_add_awake_window_ie(sdata, skb) ||
 	    mesh_add_vendor_ies(sdata, skb))
@@ -949,6 +971,8 @@ ieee80211_mesh_rx_probe_req(struct ieee80211_sub_if_data *sdata,
 	struct beacon_data *bcn;
 	struct ieee80211_mgmt *hdr;
 	struct ieee802_11_elems elems;
+	enum ieee80211_band band;
+	struct ieee80211_chanctx_conf *chanctx_conf;
 	size_t baselen;
 	u8 *pos;
 
@@ -966,6 +990,13 @@ ieee80211_mesh_rx_probe_req(struct ieee80211_sub_if_data *sdata,
 	if ((!ether_addr_equal(mgmt->da, sdata->vif.addr) &&
 	     !is_broadcast_ether_addr(mgmt->da)) ||
 	    elems.ssid_len != 0)
+		return;
+
+	/* If hidden ssid, probe request frame with
+	 * broadcast mesh id is not accepted
+	 */
+	if (sdata->vif.bss_conf.hidden_ssid
+	    != NL80211_HIDDEN_SSID_NOT_IN_USE && elems.mesh_id_len == 0)
 		return;
 
 	if (elems.mesh_id_len != 0 &&
@@ -986,7 +1017,26 @@ ieee80211_mesh_rx_probe_req(struct ieee80211_sub_if_data *sdata,
 
 	skb_reserve(presp, local->tx_headroom);
 	memcpy(skb_put(presp, bcn->head_len), bcn->head, bcn->head_len);
-	memcpy(skb_put(presp, bcn->tail_len), bcn->tail, bcn->tail_len);
+
+	if (sdata->vif.bss_conf.hidden_ssid
+	    != NL80211_HIDDEN_SSID_NOT_IN_USE) {
+		rcu_read_lock();
+		chanctx_conf = rcu_dereference(sdata->vif.chanctx_conf);
+		band = chanctx_conf->def.chan->band;
+		rcu_read_unlock();
+		if (ieee80211_add_ext_srates_ie(sdata, presp, true, band) ||
+		    mesh_add_rsn_ie(sdata, presp) ||
+		    mesh_add_ht_cap_ie(sdata, presp) ||
+		    mesh_add_ht_oper_ie(sdata, presp) ||
+		    mesh_add_meshid_ie(sdata, presp, false) ||
+		    mesh_add_meshconf_ie(sdata, presp) ||
+		    mesh_add_awake_window_ie(sdata, presp) ||
+		    mesh_add_vendor_ies(sdata, presp))
+			goto out;
+	} else {
+		memcpy(skb_put(presp, bcn->tail_len), bcn->tail, bcn->tail_len);
+	}
+
 	hdr = (struct ieee80211_mgmt *) presp->data;
 	hdr->frame_control = cpu_to_le16(IEEE80211_FTYPE_MGMT |
 					 IEEE80211_STYPE_PROBE_RESP);
@@ -1039,8 +1089,8 @@ static void ieee80211_mesh_rx_bcn_presp(struct ieee80211_sub_if_data *sdata,
 	if (!channel || channel->flags & IEEE80211_CHAN_DISABLED)
 		return;
 
-	if (mesh_matches_local(sdata, &elems))
-		mesh_neighbour_update(sdata, mgmt->sa, &elems);
+	if (mesh_matches_local(sdata, &elems, stype))
+		mesh_neighbour_update(sdata, mgmt->sa, &elems, stype);
 
 	if (ifmsh->sync_ops)
 		ifmsh->sync_ops->rx_bcn_presp(sdata,

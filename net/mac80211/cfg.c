@@ -1563,6 +1563,8 @@ static int copy_mesh_setup(struct ieee80211_if_mesh *ifmsh,
 
 	sdata->vif.bss_conf.beacon_int = setup->beacon_interval;
 	sdata->vif.bss_conf.dtim_period = setup->dtim_period;
+	sdata->vif.bss_conf.hidden_ssid =
+		(setup->hidden_ssid != NL80211_HIDDEN_SSID_NOT_IN_USE);
 
 	return 0;
 }

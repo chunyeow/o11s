@@ -8135,6 +8135,14 @@ static int nl80211_join_mesh(struct sk_buff *skb, struct genl_info *info)
 			return -EINVAL;
 	}
 
+	if (info->attrs[NL80211_ATTR_HIDDEN_SSID]) {
+		setup.hidden_ssid =
+			nla_get_u32(info->attrs[NL80211_ATTR_HIDDEN_SSID]);
+		if (setup.hidden_ssid != NL80211_HIDDEN_SSID_NOT_IN_USE &&
+		    setup.hidden_ssid != NL80211_HIDDEN_SSID_ZERO_LEN)
+			return -EINVAL;
+	}
+
 	if (info->attrs[NL80211_ATTR_MESH_SETUP]) {
 		/* parse additional setup parameters if given */
 		err = nl80211_parse_mesh_setup(info, &setup);

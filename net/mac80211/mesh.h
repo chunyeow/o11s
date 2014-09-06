@@ -213,12 +213,12 @@ int ieee80211_new_mesh_header(struct ieee80211_sub_if_data *sdata,
 int mesh_rmc_check(struct ieee80211_sub_if_data *sdata,
 		   const u8 *addr, struct ieee80211s_hdr *mesh_hdr);
 bool mesh_matches_local(struct ieee80211_sub_if_data *sdata,
-			struct ieee802_11_elems *ie);
+			struct ieee802_11_elems *ie, u16 stype);
 void mesh_ids_set_default(struct ieee80211_if_mesh *mesh);
 int mesh_add_meshconf_ie(struct ieee80211_sub_if_data *sdata,
 			 struct sk_buff *skb);
 int mesh_add_meshid_ie(struct ieee80211_sub_if_data *sdata,
-		       struct sk_buff *skb);
+		       struct sk_buff *skb, bool beacon);
 int mesh_add_rsn_ie(struct ieee80211_sub_if_data *sdata,
 		    struct sk_buff *skb);
 int mesh_add_vendor_ies(struct ieee80211_sub_if_data *sdata,
@@ -283,7 +283,7 @@ int mesh_gate_num(struct ieee80211_sub_if_data *sdata);
 
 /* Mesh plinks */
 void mesh_neighbour_update(struct ieee80211_sub_if_data *sdata,
-			   u8 *hw_addr, struct ieee802_11_elems *ie);
+			   u8 *hw_addr, struct ieee802_11_elems *ie, u16 stype);
 bool mesh_peer_accepts_plinks(struct ieee802_11_elems *ie);
 u32 mesh_accept_plinks_update(struct ieee80211_sub_if_data *sdata);
 void mesh_plink_broken(struct sta_info *sta);

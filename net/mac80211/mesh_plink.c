@@ -310,12 +310,12 @@ static int mesh_plink_frame_tx(struct ieee80211_sub_if_data *sdata,
 		if (ieee80211_add_srates_ie(sdata, skb, true, band) ||
 		    ieee80211_add_ext_srates_ie(sdata, skb, true, band) ||
 		    mesh_add_rsn_ie(sdata, skb) ||
-		    mesh_add_meshid_ie(sdata, skb) ||
+		    mesh_add_meshid_ie(sdata, skb, false) ||
 		    mesh_add_meshconf_ie(sdata, skb))
 			goto free;
 	} else {	/* WLAN_SP_MESH_PEERING_CLOSE */
 		info->flags |= IEEE80211_TX_CTL_NO_ACK;
-		if (mesh_add_meshid_ie(sdata, skb))
+		if (mesh_add_meshid_ie(sdata, skb, false))
 			goto free;
 	}
 
@@ -503,26 +503,38 @@ mesh_sta_info_get(struct ieee80211_sub_if_data *sdata,
  * @sdata: local meshif
  * @addr: peer's address
  * @elems: IEs from beacon or mesh peering frame
+ * @stype: frame type either beacon, probe response or action frame
  *
  * Initiates peering if appropriate.
  */
 void mesh_neighbour_update(struct ieee80211_sub_if_data *sdata,
 			   u8 *hw_addr,
-			   struct ieee802_11_elems *elems)
+			   struct ieee802_11_elems *elems, u16 stype)
 {
 	struct sta_info *sta;
 	u32 changed = 0;
 
-	sta = mesh_sta_info_get(sdata, hw_addr, elems);
-	if (!sta)
-		goto out;
+	if (sdata->vif.bss_conf.hidden_ssid
+	    != NL80211_HIDDEN_SSID_NOT_IN_USE &&
+	    stype == IEEE80211_STYPE_BEACON) {
+		rcu_read_lock();
+		sta = sta_info_get(sdata, hw_addr);
+		if (sta)
+			mesh_sta_info_init(sdata, sta, elems, false);
+		else
+			goto out;
+	} else {
+		sta = mesh_sta_info_get(sdata, hw_addr, elems);
+		if (!sta)
+			goto out;
 
-	if (mesh_peer_accepts_plinks(elems) &&
-	    sta->plink_state == NL80211_PLINK_LISTEN &&
-	    sdata->u.mesh.accepting_plinks &&
-	    sdata->u.mesh.mshcfg.auto_open_plinks &&
-	    rssi_threshold_check(sdata, sta))
-		changed = mesh_plink_open(sta);
+		if (mesh_peer_accepts_plinks(elems) &&
+		    sta->plink_state == NL80211_PLINK_LISTEN &&
+		    sdata->u.mesh.accepting_plinks &&
+		    sdata->u.mesh.mshcfg.auto_open_plinks &&
+		    rssi_threshold_check(sdata, sta))
+			changed = mesh_plink_open(sta);
+	}
 
 	ieee80211_mps_frame_release(sta, elems);
 out:
@@ -910,7 +922,8 @@ mesh_plink_get_event(struct ieee80211_sub_if_data *sdata,
 	bool matches_local;
 
 	matches_local = (ftype == WLAN_SP_MESH_PEERING_CLOSE ||
-			 mesh_matches_local(sdata, elems));
+			 mesh_matches_local(sdata, elems,
+					    IEEE80211_STYPE_ACTION));
 
 	/* deny open request from non-matching peer */
 	if (!matches_local && !sta) {
