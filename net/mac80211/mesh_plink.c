@@ -281,6 +281,7 @@ static int mesh_plink_frame_tx(struct ieee80211_sub_if_data *sdata,
 			    2 + sizeof(struct ieee80211_meshconf_ie) +
 			    2 + sizeof(struct ieee80211_ht_cap) +
 			    2 + sizeof(struct ieee80211_ht_operation) +
+			    2 + sizeof(struct ieee80211_vht_cap) +
 			    2 + 8 + /* peering IE */
 			    sdata->u.mesh.ie_len);
 	if (!skb)
@@ -361,7 +362,8 @@ static int mesh_plink_frame_tx(struct ieee80211_sub_if_data *sdata,
 
 	if (action != WLAN_SP_MESH_PEERING_CLOSE) {
 		if (mesh_add_ht_cap_ie(sdata, skb) ||
-		    mesh_add_ht_oper_ie(sdata, skb))
+		    mesh_add_ht_oper_ie(sdata, skb) ||
+		    mesh_add_vht_cap_ie(sdata, skb)) 
 			goto free;
 	}
 
